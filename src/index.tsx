@@ -329,6 +329,7 @@ const GlassContainer = forwardRef<
       backdropFilter: blurValue,
       WebkitBackdropFilter: blurValue,
       backgroundColor: "rgba(255, 255, 255, 0.05)",
+      pointerEvents: "none",
     }
 
     const handleKeyDown = (e: React.KeyboardEvent) => {

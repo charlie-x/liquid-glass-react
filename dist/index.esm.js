@@ -335,7 +335,8 @@ var GlassContainer = forwardRef(
       borderRadius: `${cornerRadius}px`,
       backdropFilter: blurValue,
       WebkitBackdropFilter: blurValue,
-      backgroundColor: "rgba(255, 255, 255, 0.05)"
+      backgroundColor: "rgba(255, 255, 255, 0.05)",
+      pointerEvents: "none"
     };
     const handleKeyDown = (e) => {
       if ((e.key === "Enter" || e.key === " ") && onClick) {
