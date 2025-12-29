@@ -350,7 +350,7 @@ const GlassContainer = forwardRef<
             alignItems: fillContainer ? undefined : "center",
             gap: fillContainer ? undefined : "24px",
             padding,
-            overflow: "hidden",
+            overflow: fillContainer ? "visible" : "hidden",
             transition: "all 0.2s ease-in-out",
             boxShadow: overLight ? "0px 16px 70px rgba(0, 0, 0, 0.75)" : "0px 12px 40px rgba(0, 0, 0, 0.25)",
           }}
