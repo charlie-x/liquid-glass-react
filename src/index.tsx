@@ -1,4 +1,4 @@
-import { type CSSProperties, forwardRef, useCallback, useEffect, useId, useRef, useState } from "react"
+import { type CSSProperties, forwardRef, memo, useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from "react"
 import { ShaderDisplacementGenerator, fragmentShaders } from "./shader-utils"
 import { displacementMap, polarDisplacementMap, prominentDisplacementMap } from "./utils"
 
@@ -32,7 +32,10 @@ const getMap = (mode: "standard" | "polar" | "prominent" | "shader", shaderMapUr
 }
 
 /* ---------- Crack Pattern Generator ---------- */
-const CrackPattern: React.FC<{ id: string; intensity: number; width: number; height: number }> = ({ id, intensity, width, height }) => {
+const CrackPattern = memo<{ id: string; intensity: number; width: number; height: number }>(({ id, intensity, width, height }) => {
+  // round to 2 decimal places to avoid SSR/client hydration mismatch from floating point precision
+  const r = (n: number) => Math.round(n * 100) / 100
+
   // Generate deterministic random cracks based on intensity
   const generateCracks = (intensity: number) => {
     const cracks: Array<{id: string, path: string}> = []
@@ -47,10 +50,10 @@ const CrackPattern: React.FC<{ id: string; intensity: number; width: number; hei
     }
 
     for (let i = 0; i < numCracks; i++) {
-      const startX = seededRandom() * width
-      const startY = seededRandom() * height
-      const length = 20 + seededRandom() * (width * 0.3)
-      const angle = seededRandom() * Math.PI * 2
+      const startX = r(seededRandom() * width)
+      const startY = r(seededRandom() * height)
+      const length = r(20 + seededRandom() * (width * 0.3))
+      const angle = r(seededRandom() * Math.PI * 2)
       const segments = 3 + Math.floor(seededRandom() * 4)
 
       let path = `M ${startX} ${startY}`
@@ -59,18 +62,18 @@ const CrackPattern: React.FC<{ id: string; intensity: number; width: number; hei
 
       for (let j = 0; j < segments; j++) {
         const segmentLength = length / segments
-        const angleVariation = (seededRandom() - 0.5) * 0.5
+        const angleVariation = r((seededRandom() - 0.5) * 0.5)
         const currentAngle = angle + angleVariation
 
-        currentX += Math.cos(currentAngle) * segmentLength
-        currentY += Math.sin(currentAngle) * segmentLength
+        currentX = r(currentX + Math.cos(currentAngle) * segmentLength)
+        currentY = r(currentY + Math.sin(currentAngle) * segmentLength)
 
         if (j === 0) {
           path += ` L ${currentX} ${currentY}`
         } else {
           // Add some curve variation
-          const controlX = currentX + (seededRandom() - 0.5) * 10
-          const controlY = currentY + (seededRandom() - 0.5) * 10
+          const controlX = r(currentX + (seededRandom() - 0.5) * 10)
+          const controlY = r(currentY + (seededRandom() - 0.5) * 10)
           path += ` Q ${controlX} ${controlY} ${currentX} ${currentY}`
         }
       }
@@ -82,12 +85,12 @@ const CrackPattern: React.FC<{ id: string; intensity: number; width: number; hei
 
       // Add smaller branch cracks
       if (seededRandom() > 0.6) {
-        const branchX = startX + (currentX - startX) * seededRandom()
-        const branchY = startY + (currentY - startY) * seededRandom()
-        const branchLength = length * 0.3
-        const branchAngle = angle + (seededRandom() - 0.5) * Math.PI
-        const branchEndX = branchX + Math.cos(branchAngle) * branchLength
-        const branchEndY = branchY + Math.sin(branchAngle) * branchLength
+        const branchX = r(startX + (currentX - startX) * seededRandom())
+        const branchY = r(startY + (currentY - startY) * seededRandom())
+        const branchLength = r(length * 0.3)
+        const branchAngle = r(angle + (seededRandom() - 0.5) * Math.PI)
+        const branchEndX = r(branchX + Math.cos(branchAngle) * branchLength)
+        const branchEndY = r(branchY + Math.sin(branchAngle) * branchLength)
 
         cracks.push({
           id: `${id}-branch-${i}`,
@@ -152,7 +155,7 @@ const CrackPattern: React.FC<{ id: string; intensity: number; width: number; hei
       ))}
     </svg>
   )
-}
+})
 
 /* ---------- SVG filter (edge-only displacement) ---------- */
 const GlassFilter: React.FC<{ id: string; displacementScale: number; aberrationIntensity: number; width: number; height: number; mode: "standard" | "polar" | "prominent" | "shader"; shaderMapUrl?: string }> = ({
@@ -304,7 +307,7 @@ const GlassContainer = forwardRef<
     const filterId = useId()
     const [shaderMapUrl, setShaderMapUrl] = useState<string>("")
 
-    const isFirefox = navigator.userAgent.toLowerCase().includes("firefox")
+    const isFirefox = typeof navigator !== "undefined" && navigator.userAgent.toLowerCase().includes("firefox")
 
     // Generate shader displacement map when in shader mode
     useEffect(() => {
@@ -315,14 +318,17 @@ const GlassContainer = forwardRef<
     }, [mode, glassSize.width, glassSize.height])
 
     const blurValue = `blur(${(overLight ? 12 : 4) + blurAmount * 32}px) saturate(${saturation}%)`
-    // Split backdrop-filter and SVG filter to avoid Chrome's compositor surface limits
-    const backdropStyle = {
+
+    // note: chrome has a ~4096px compositor limit when combining backdrop-filter + SVG filter
+    // for fillContainer mode (tall panels), we disable the SVG filter to avoid clipping
+    // the blur effect still works, only the edge displacement/aberration is disabled
+    const backdropStyle: CSSProperties = {
+      position: "absolute",
+      inset: "0",
+      borderRadius: `${cornerRadius}px`,
       backdropFilter: blurValue,
       WebkitBackdropFilter: blurValue,
       backgroundColor: "rgba(255, 255, 255, 0.05)",
-    }
-    const svgFilterStyle = {
-      filter: isFirefox ? undefined : `url(#${filterId})`,
     }
 
     const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -356,7 +362,7 @@ const GlassContainer = forwardRef<
             alignItems: fillContainer ? undefined : "center",
             gap: fillContainer ? undefined : "24px",
             padding,
-            overflow: fillContainer ? "visible" : "hidden",
+            overflow: "hidden",
             transition: "all 0.2s ease-in-out",
             boxShadow: overLight ? "0px 16px 70px rgba(0, 0, 0, 0.75)" : "0px 12px 40px rgba(0, 0, 0, 0.25)",
           }}
@@ -365,33 +371,16 @@ const GlassContainer = forwardRef<
           onMouseDown={onMouseDown}
           onMouseUp={onMouseUp}
         >
-          {/* backdrop blur layer - separate from SVG filter to avoid compositor limits */}
+          {/* backdrop blur + SVG filter combined - for small elements only */}
+          {/* for tall elements (fillContainer), SVG filter causes clipping so we use blur only */}
           <span
-            className="glass__blur"
-            style={
-              {
-                ...backdropStyle,
-                position: "absolute",
-                inset: "0",
-                borderRadius: `${cornerRadius}px`,
-              } as CSSProperties
-            }
+            className="glass__warp"
+            style={{
+              ...backdropStyle,
+              filter: (!fillContainer && !isFirefox) ? `url(#${filterId})` : undefined,
+              zIndex: 0,
+            }}
           />
-          {/* SVG displacement filter layer - applied separately */}
-          {!isFirefox && (
-            <span
-              className="glass__warp"
-              style={
-                {
-                  ...svgFilterStyle,
-                  position: "absolute",
-                  inset: "0",
-                  borderRadius: `${cornerRadius}px`,
-                  pointerEvents: "none",
-                } as CSSProperties
-              }
-            />
-          )}
 
           {/* user content stays sharp */}
           <div
@@ -514,7 +503,7 @@ export default function LiquidGlass({
 
   // Calculate directional scaling based on mouse position (disabled in fillContainer mode)
   const calculateDirectionalScale = useCallback(() => {
-    if (fillContainer || !globalMousePos.x || !globalMousePos.y || !glassRef.current) {
+    if (fillContainer || globalMousePos.x == null || globalMousePos.y == null || !glassRef.current) {
       return "scale(1)"
     }
 
@@ -566,7 +555,7 @@ export default function LiquidGlass({
 
   // Helper function to calculate fade-in factor based on distance from element edges
   const calculateFadeInFactor = useCallback(() => {
-    if (fillContainer || !globalMousePos.x || !globalMousePos.y || !glassRef.current) {
+    if (fillContainer || globalMousePos.x == null || globalMousePos.y == null || !glassRef.current) {
       return 0
     }
 
@@ -602,7 +591,8 @@ export default function LiquidGlass({
   }, [globalMousePos, elasticity, calculateFadeInFactor, fillContainer])
 
   // Update glass size whenever component mounts or window resizes
-  useEffect(() => {
+  // useLayoutEffect ensures size is measured before paint to prevent flash
+  useLayoutEffect(() => {
     const updateGlassSize = () => {
       if (glassRef.current) {
         const rect = glassRef.current.getBoundingClientRect()
@@ -616,9 +606,11 @@ export default function LiquidGlass({
   }, [])
 
   // Different transforms for fillContainer vs pill mode
+  // Cache elastic translation to avoid duplicate getBoundingClientRect calls
+  const elasticTranslation = fillContainer ? { x: 0, y: 0 } : calculateElasticTranslation()
   const transformStyle = fillContainer
     ? "none"
-    : `translate(calc(-50% + ${calculateElasticTranslation().x}px), calc(-50% + ${calculateElasticTranslation().y}px)) ${isActive && Boolean(onClick) ? "scale(0.96)" : calculateDirectionalScale()}`
+    : `translate(calc(-50% + ${elasticTranslation.x}px), calc(-50% + ${elasticTranslation.y}px)) ${isActive && Boolean(onClick) ? "scale(0.96)" : calculateDirectionalScale()}`
 
   const baseStyle: CSSProperties = {
     ...style,
@@ -874,3 +866,4 @@ export default function LiquidGlass({
     </>
   )
 }
+
