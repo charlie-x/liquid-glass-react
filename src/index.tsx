@@ -314,9 +314,15 @@ const GlassContainer = forwardRef<
       }
     }, [mode, glassSize.width, glassSize.height])
 
+    const blurValue = `blur(${(overLight ? 12 : 4) + blurAmount * 32}px) saturate(${saturation}%)`
+    // Split backdrop-filter and SVG filter to avoid Chrome's compositor surface limits
     const backdropStyle = {
-      filter: isFirefox ? null : `url(#${filterId})`,
-      backdropFilter: `blur(${(overLight ? 12 : 4) + blurAmount * 32}px) saturate(${saturation}%)`,
+      backdropFilter: blurValue,
+      WebkitBackdropFilter: blurValue,
+      backgroundColor: "rgba(255, 255, 255, 0.05)",
+    }
+    const svgFilterStyle = {
+      filter: isFirefox ? undefined : `url(#${filterId})`,
     }
 
     const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -359,17 +365,33 @@ const GlassContainer = forwardRef<
           onMouseDown={onMouseDown}
           onMouseUp={onMouseUp}
         >
-          {/* backdrop layer that gets wiggly */}
+          {/* backdrop blur layer - separate from SVG filter to avoid compositor limits */}
           <span
-            className="glass__warp"
+            className="glass__blur"
             style={
               {
                 ...backdropStyle,
                 position: "absolute",
                 inset: "0",
+                borderRadius: `${cornerRadius}px`,
               } as CSSProperties
             }
           />
+          {/* SVG displacement filter layer - applied separately */}
+          {!isFirefox && (
+            <span
+              className="glass__warp"
+              style={
+                {
+                  ...svgFilterStyle,
+                  position: "absolute",
+                  inset: "0",
+                  borderRadius: `${cornerRadius}px`,
+                  pointerEvents: "none",
+                } as CSSProperties
+              }
+            />
+          )}
 
           {/* user content stays sharp */}
           <div
